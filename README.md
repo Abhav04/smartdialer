@@ -2,6 +2,26 @@
 
 SmartDialer is a progressive and predictive telecom dialer prototype built in Java 21 and Spring Boot. It demonstrates distributed-systems-style concurrency control, in-memory atomic state machines, and a safety-controller-gated predictive pacing architecture where correctness and failure handling take absolute priority over feature breadth.
 
+## Submission Deliverables & Implementation Map
+
+| Deliverable | Description / Location in Repository |
+| :--- | :--- |
+| **Working Source Code** | Pure in-memory lock-free domain and dialer implementation under [`src/main/java/com/smartdialer`](src/main/java/com/smartdialer). |
+| **README with Setup Instructions** | [`README.md`](README.md) (Prerequisites, build, test, and simulation instructions). |
+| **Architecture Diagram** | Complete dataflow pipeline graph & component interactions in [`ARCHITECTURE.md`](ARCHITECTURE.md#architecture). |
+| **Agent State Machine** | Implementation in [`AgentStatus.java`](src/main/java/com/smartdialer/agent/AgentStatus.java) & [`Agent.java`](src/main/java/com/smartdialer/agent/Agent.java); visual state diagrams in [`ARCHITECTURE.md`](ARCHITECTURE.md#agent-state-machine). |
+| **Call State Machine** | Implementation in [`CallStatus.java`](src/main/java/com/smartdialer/call/CallStatus.java) & [`Call.java`](src/main/java/com/smartdialer/call/Call.java); visual state diagrams in [`ARCHITECTURE.md`](ARCHITECTURE.md#call-state-machine). |
+| **Progressive Dialer** | 1:1 agent allocation and resilient worker pool orchestration in [`ProgressiveDialer.java`](src/main/java/com/smartdialer/dialer/ProgressiveDialer.java) and [`CallAllocator.java`](src/main/java/com/smartdialer/allocation/CallAllocator.java). |
+| **Predictive Pacing Engine** | Structurally isolated pacing algorithm in [`PredictivePacingEngine.java`](src/main/java/com/smartdialer/pacing/PredictivePacingEngine.java) (zero imports from dialer/provider/allocator packages). |
+| **Safety Controller** | Non-bypassable safety boundary enforcing hard caps and provider failure fallbacks in [`SafetyController.java`](src/main/java/com/smartdialer/pacing/SafetyController.java). |
+| **Mock Telecom Providers** | Deterministic [`ReliableProvider.java`](src/main/java/com/smartdialer/provider/ReliableProvider.java) and chaos-simulating [`FlakyProvider.java`](src/main/java/com/smartdialer/provider/FlakyProvider.java) (timeouts, duplicates, out-of-order webhooks). |
+| **Tests** | 17 unit, chaos integration, and end-to-end campaign test suites across 9 test classes in [`src/test/java`](src/test/java). |
+| **Basic Simulation** | Interactive CLI simulation runner in [`Simulation.java`](src/main/java/com/smartdialer/simulation/Simulation.java) and empirical results across Scenarios A–D in [`SIMULATION_REPORT.md`](SIMULATION_REPORT.md). |
+| **Basic Load Test** | Percentile latency and throughput benchmark harness in [`LoadTestHarness.java`](src/main/java/com/smartdialer/load/LoadTestHarness.java) proving scalability at 100, 1,000, and 10,000 agents. |
+| **Architecture Decision Document** | Architecture Decision Records (ADR-1 through ADR-9 + empirical roadmap) in [`ADR.md`](ADR.md). |
+
+---
+
 ## Quick start
 
 ### Prerequisites
@@ -10,7 +30,7 @@ SmartDialer is a progressive and predictive telecom dialer prototype built in Ja
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/Abhav04/smartdialer.git
 cd smartdialer
 
 # Run the complete test suite across all phases (state machines, chaos survivability, dialer campaigns)
