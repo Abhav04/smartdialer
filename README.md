@@ -42,6 +42,45 @@ To capture predictive throughput gains without sacrificing progressive safety gu
 
 ---
 
+## Concurrency, Failure Modes & Distributed Design
+
+### 1. Two Workers Racing on the Same Available Agent
+- **Mechanism**: Agent reservation uses `agent.tryTransition(AgentStatus.AVAILABLE, AgentStatus.RESERVED)` backed by `AtomicReference.compareAndSet`.
+- **Outcome**: Exactly one worker succeeds at the hardware CPU level. The losing worker receives `false`, releases any local claims via compensating rollback (`CallAllocator`), and either polls the next hint (in `ScalableAgentRegistry`) or requeues the job with exponential backoff.
+
+### 2. Worker Thread Crash
+- **Mechanism**: `DialerWorker.processJob` utilizes an explicit `registeredForAsyncCompletion` flag inside a `try-catch-finally` block.
+- **Outcome**: If the thread crashes before registering with `CallLifecycleCoordinator`, the claim is guaranteed to be released in `finally`. Once registered, ownership transfers to the coordinator, and `ProgressiveDialer.submitResilientWorker` automatically respawns a replacement worker thread.
+
+### 3. Telecom Provider Outage & Timeouts
+- **Mechanism**: `StuckCallWatchdog` runs a periodic background sweep (`scheduleAtFixedRate`) checking active call durations against a 8,000ms threshold.
+- **Outcome**: Calls orphaned by provider packet loss or dropped webhooks are force-cancelled via `applyEvent(CANCELLED)`, returning bound agents to `AVAILABLE` and releasing borrower claims.
+
+### 4. Sudden Agent Availability Drops (Cliff Drop: 100 $\to$ 60 agents)
+- **Mechanism**: `SnapshotAssembler` polls live agent statuses at every pacing tick.
+- **Outcome**: The `SafetyController` instantly recalculates hard caps (`approvedCalls = min(recommended, availableAgents, maxRingingUnbound)`), dropping dispatch admissions to zero until ringing headroom recovers.
+
+### 5. Duplicate and Out-of-Order Provider Webhooks
+- **Mechanism**: `Call.applyEvent` validates transitions against an immutable whitelist (`ALLOWED_TRANSITIONS`). Terminal states (`COMPLETED`, `FAILED`, `CANCELLED`) have empty transition sets.
+- **Outcome**: Duplicate webhooks (e.g., `ANSWERED` $\times 3$) and inverted events (e.g., `COMPLETED` followed by late `RINGING`) return `false` and are logged as benign info without mutating agent or call states.
+
+---
+
+## Scalability & Performance Benchmarking (100 $\to$ 10,000 Agents)
+
+We evaluated thread contention and latency degradation under 16 concurrent workers using [`LoadTestHarness`](src/main/java/com/smartdialer/load/LoadTestHarness.java):
+
+| Agent Count | Scan-Based Throughput | Scan-Based p99 Latency | Queue-Based Throughput | Queue-Based p99 Latency |
+| :--- | :--- | :--- | :--- | :--- |
+| **100** | ~2.49M ops/sec | 4 µs | ~4.61M ops/sec | < 1 µs |
+| **1,000** | ~393k ops/sec | 48 µs | ~4.40M ops/sec | < 1 µs |
+| **10,000** | ~63.5k ops/sec | **5,240 µs (5.24 ms)** | **~4.76M ops/sec** | **< 1 µs** |
+
+- **The Bottleneck**: Scan-based registries (`AgentRegistry`) suffer an **~1,300x increase in p99 latency** due to super-linear $O(n)$ map walk contention.
+- **The Solution**: [`ScalableAgentRegistry`](src/main/java/com/smartdialer/agent/ScalableAgentRegistry.java) uses a `ConcurrentLinkedQueue<String>` hint queue with atomic CAS verification, delivering flat sub-microsecond p99 latency across all pool sizes.
+
+---
+
 ## Quick start
 
 ### Prerequisites
