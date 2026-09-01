@@ -22,6 +22,26 @@ SmartDialer is a progressive and predictive telecom dialer prototype built in Ja
 
 ---
 
+## Core Question: Maximizing Predictive Utilization while Retaining Progressive Deterministic Safety
+
+> **"How would you build a SmartDialer that gets as much of the utilization benefit of predictive dialing as possible, while retaining the deterministic safety characteristics of progressive dialing?"**
+
+To capture predictive throughput gains without sacrificing progressive safety guarantees:
+
+1. **Layered Two-Tier Allocation (Progressive Floor + Wrap-Up Overdial Cushion)**:
+   - **Tier 1 (Deterministic Base)**: Reserve 1:1 against all currently `AVAILABLE` agents, establishing a guaranteed zero-abandonment baseline.
+   - **Tier 2 (Bounded Predictive Cushion)**: Pre-dial *only* against agents entering deterministic `WRAP_UP` (or late-stage calls with high-confidence duration decay), strictly capping total unassigned ringing calls to `AvailableAgents + RingingHeadroom`.
+2. **Event-Driven Immediate Dispatch (Eliminating Inter-Tick Latency)**:
+   - Rather than waiting for a periodic 500ms pacing tick (which introduces idle air when safety caps collapse), trigger instant opportunistic dispatch the moment an agent completes wrap-up or transitions to `AVAILABLE`.
+3. **Adaptive Planning Horizons**:
+   - Scale the lookahead horizon dynamically with average call length (`horizon = max(5.0, avgTalkTime * 0.2)`) instead of using a static window, eliminating the artificial capacity starvation that throttles predictive dialing on long calls.
+4. **Compile-Time Isolated Safety Boundary with Circuit Breaker**:
+   - Enforce compile-time structural isolation between pacing recommendations and call dispatch (`PredictivePacingEngine` has zero dialer/provider dependencies). The `SafetyController` automatically drops back to 1:1 progressive dialing the moment provider failure rates spike or ringing queues fill.
+5. **Auditable Zero-Limbo Compliance Fallback**:
+   - In the rare event of an unexpected answer burst with zero agents free, immediately force-cancel the call with a tagged `[COMPLIANCE]` audit log, dedicated metric emission, and instant claim release rather than subjecting the customer to dead air.
+
+---
+
 ## Quick start
 
 ### Prerequisites
@@ -72,14 +92,6 @@ The codebase is validated through a four-layer testing pyramid:
 2. **Integration Tests (Chaos & Survivability)**: Verifies that duplicate and out-of-order webhook events under real async scheduling never corrupt call states (e.g. `CallEventProcessorTest`, `DuplicateAndOutOfOrderEventScenarioTest`).
 3. **End-to-End Tests (Campaign Draining & Safety)**: Verifies complete campaign draining, backoff requeue loops, safety budget clamping, and agent cliff-drop response latency (e.g. `ProgressiveDialerTest`, `PredictiveDialerTest`, `AgentCliffDropTest`, `SafetyControllerTest`).
 4. **Load & Bottleneck Discovery**: Measures concurrency limits and latency degradation curves under high thread contention (e.g. `LoadTestHarness`).
-
-## Synthesis: Maximum Utilization with Progressive Safety
-
-To achieve the utilization gains of predictive dialing while retaining the deterministic safety of progressive dialing:
-1. **Layered Hybrid Dispatch**: Treat progressive 1:1 reservation as the baseline floor. Overdial only against agents in bounded deterministic `WRAP_UP` states (or high-confidence duration decay), capping total unassigned ringing calls strictly to the immediate available buffer.
-2. **Event-Driven Immediate Dispatch**: Eliminate periodic tick-interval latency by triggering opportunistic admissions immediately upon agent state transitions to `AVAILABLE` or `WRAP_UP`.
-3. **Adaptive Planning Horizons**: Scale pacing horizons dynamically with `avgCallDurationSeconds` to prevent capacity starvation in long-call campaigns.
-4. **Non-Bypassable Safety Boundary**: Enforce compile-time isolation between pacing recommendations and call dispatch, with automatic fallback to progressive dialing on provider jitter or agent cliff drops.
 
 ## Design docs
 
