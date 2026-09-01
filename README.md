@@ -42,6 +42,91 @@ To capture predictive throughput gains without sacrificing progressive safety gu
 
 ---
 
+## Local Setup & Execution Guide
+
+SmartDialer requires **zero external infrastructure** (no Docker, no Redis, no Kafka, no database). It runs purely in-memory on standard Java 21 and Maven.
+
+### Prerequisites
+- **Java 21** (JDK 21+): Verify via `java -version`
+- **Apache Maven 3.9+**: Verify via `mvn -version`
+
+---
+
+### Step 1: Clone & Build
+```bash
+git clone https://github.com/Abhav04/smartdialer.git
+cd smartdialer
+
+# Compile all source classes and verify build
+mvn clean compile
+```
+
+---
+
+### Step 2: Run the Full Test Suite
+Execute all 17 unit and chaos integration tests:
+```bash
+mvn test
+```
+*Expected Result:*
+```text
+[INFO] Tests run: 17, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+```
+
+---
+
+### Step 3: Run the Live Campaign Simulation
+The interactive CLI simulation runs a 100-borrower, 20-agent campaign against simulated telecommunication providers under realistic network chaos (timeouts, duplicates, and out-of-order webhooks).
+
+#### Command Syntax:
+```bash
+mvn compile exec:java -Dexec.mainClass="com.smartdialer.simulation.Simulation" -Dexec.args="<mode> <scenario>"
+```
+
+#### Available Parameters:
+- **`<mode>`**: `predictive` (default) or `progressive`
+- **`<scenario>`**:
+  - `A`: 20% answer rate, 120s avg talk time (low answer rate)
+  - `B`: 50% answer rate, 90s avg talk time (standard baseline)
+  - `C`: 70% answer rate, 180s avg talk time (high answer rate, maximum predictive lift)
+  - `D`: 45% answer rate, 130s avg talk time (changing conditions mid-point)
+
+#### Example Run (Predictive Mode, Scenario C):
+```bash
+mvn compile exec:java -Dexec.mainClass="com.smartdialer.simulation.Simulation" -Dexec.args="predictive C"
+```
+
+#### Example Run (Progressive Baseline, Scenario B):
+```bash
+mvn compile exec:java -Dexec.mainClass="com.smartdialer.simulation.Simulation" -Dexec.args="progressive B"
+```
+
+---
+
+### Step 4: Run the Scalability & Concurrency Load Test
+Compare the scan-based (`AgentRegistry`) vs queue-hinted (`ScalableAgentRegistry`) agent reservation performance under 16 concurrent threads:
+```bash
+mvn compile exec:java -Dexec.mainClass="com.smartdialer.load.LoadTestHarness"
+```
+*Expected Output:*
+```text
+agents=100   | SCAN throughput=~2.49M/s p99=4us    | QUEUE throughput=~4.61M/s p99=0us
+agents=1000  | SCAN throughput=~393k/s  p99=48us   | QUEUE throughput=~4.40M/s p99=0us
+agents=10000 | SCAN throughput=~63.5k/s p99=5240us | QUEUE throughput=~4.76M/s p99=0us
+```
+
+---
+
+### Step 5: Running in IDE (IntelliJ IDEA / VS Code / Eclipse)
+You can also run classes directly from your IDE without Maven CLI:
+1. Open the `smartdialer` directory in IntelliJ IDEA or VS Code.
+2. Navigate to [`Simulation.java`](src/main/java/com/smartdialer/simulation/Simulation.java) or [`LoadTestHarness.java`](src/main/java/com/smartdialer/load/LoadTestHarness.java).
+3. Right-click the `main` method and click **Run 'Simulation.main()'** or **Run 'LoadTestHarness.main()'**.
+4. To pass arguments in IntelliJ: Edit Run Configuration $\to$ Program arguments $\to$ `predictive C`.
+
+---
+
 ## Concurrency, Failure Modes & Distributed Design
 
 ### 1. Two Workers Racing on the Same Available Agent
@@ -81,36 +166,7 @@ We evaluated thread contention and latency degradation under 16 concurrent worke
 
 ---
 
-## Quick start
-
-### Prerequisites
-- **Java 21** (JDK 21+)
-- **Apache Maven 3.9+**
-
-```bash
-# Clone the repository
-git clone https://github.com/Abhav04/smartdialer.git
-cd smartdialer
-
-# Run the complete test suite across all phases (state machines, chaos survivability, dialer campaigns)
-mvn test
-
-# Run the load test harness comparing scan-based vs queue-based agent registries at 100 / 1,000 / 10,000 agents
-mvn compile exec:java -Dexec.mainClass=com.smartdialer.load.LoadTestHarness
-```
-
-## Running a simulation
-
-The project includes an interactive CLI simulation runner that executes campaigns against simulated telecommunication providers under various operating conditions:
-
-```bash
-mvn compile exec:java -Dexec.mainClass=com.smartdialer.simulation.Simulation -Dexec.args="predictive C"
-```
-
-- **Mode**: `"progressive"` (1:1 agent-to-call reservation before dialing) or `"predictive"` (pacing-driven with deferred agent binding upon answer). Defaults to `"predictive"`.
-- **Scenario**: `"A"` (20% answer rate), `"B"` (50% answer rate), `"C"` (70% answer rate), or `"D"` (45% changing mid-point approximation). Defaults to `"B"`.
-
-## Project structure
+## Project Structure
 
 - `com.smartdialer.agent`: Agent model, atomic state machine transitions (`AgentStatus`), and thread-safe registries (`AgentRegistry`, `ScalableAgentRegistry`).
 - `com.smartdialer.call`: Call domain model, atomic state machine transitions (`CallStatus`), and idempotency-guaranteed event processing (`applyEvent`).
@@ -124,7 +180,7 @@ mvn compile exec:java -Dexec.mainClass=com.smartdialer.simulation.Simulation -De
 - `com.smartdialer.load`: `LoadTestHarness` measuring throughput (ops/sec) and p50/p99/max latency percentiles for registry scalability analysis.
 - `com.smartdialer.simulation`: `Simulation` CLI entry point and `ScenarioConfig` managing scenario execution.
 
-## Testing strategy
+## Testing Strategy
 
 The codebase is validated through a four-layer testing pyramid:
 1. **Unit Tests (State Machines & Concurrency)**: Verifies exact state transition validity, terminal-state immutability, and thread-safe lock-free CAS semantics (e.g. `AgentRegistryTest`, `ScalableAgentRegistryTest`, `CallAllocatorTest`).
@@ -132,7 +188,7 @@ The codebase is validated through a four-layer testing pyramid:
 3. **End-to-End Tests (Campaign Draining & Safety)**: Verifies complete campaign draining, backoff requeue loops, safety budget clamping, and agent cliff-drop response latency (e.g. `ProgressiveDialerTest`, `PredictiveDialerTest`, `AgentCliffDropTest`, `SafetyControllerTest`).
 4. **Load & Bottleneck Discovery**: Measures concurrency limits and latency degradation curves under high thread contention (e.g. `LoadTestHarness`).
 
-## Design docs
+## Design Docs
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): Detailed system pipeline architecture, dataflow graph, and state machine specifications.
 - [ADR.md](ADR.md): Architecture Decision Records covering in-memory guarantees, CAS concurrency, claim ownership, isolation boundaries, and scalability fixes.
